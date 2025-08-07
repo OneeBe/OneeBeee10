@@ -1,0 +1,352 @@
+
+<!-- ASCEND Card Component -->
+<div class="ascend-card" id="ascendCard">
+    <!-- Header with player info and mode selector -->
+    <div class="ascend-header">
+        <div class="row align-items-center">
+            <div class="col-auto">
+                <img src="{{ player.minecraft_skin_url }}" 
+                     alt="{{ player.nickname }}" 
+                     class="ascend-avatar">
+            </div>
+            <div class="col">
+                <div class="ascend-player-info">
+                    <h4>{{ player.nickname }}</h4>
+                    <p class="mb-0 text-muted">
+                        <i class="fas fa-star text-warning me-1"></i>
+                        Уровень {{ player.level }}
+                    </p>
+                </div>
+                <div class="game-mode-selector">
+                    {% for mode in game_modes %}
+                    <button class="mode-btn" data-mode="{{ mode.name }}" 
+                            style="--mode-color: {{ mode.color }};">
+                        <i class="{{ mode.icon }} me-1"></i>{{ mode.display_name }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ratings content -->
+    <div class="ascend-ratings">
+        <div id="ratingsContent">
+            <div class="ascend-loading">
+                <div class="loading-spinner"></div>
+                <span class="ms-2">Выберите режим игры...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin panel (only visible for admins) -->
+    {% if is_admin %}
+    <div class="ascend-admin-panel" id="adminPanel" style="display: none;">
+        <h6 class="text-danger mb-3">
+            <i class="fas fa-tools me-2"></i>Административная панель
+        </h6>
+        <form id="adminRatingForm" method="POST" action="{{ url_for('update_player_rating', player_id=player.id) }}">
+            <input type="hidden" name="game_mode_id" id="adminModeId">
+            <div class="admin-rating-form">
+                <div>
+                    <label class="form-label">K/D Рейтинг</label>
+                    <select name="kd_rating" class="tier-select">
+                        <option value="F">F Tier</option>
+                        <option value="D">D Tier</option>
+                        <option value="C">C Tier</option>
+                        <option value="B">B Tier</option>
+                        <option value="A">A Tier</option>
+                        <option value="S">S Tier</option>
+                        <option value="S+">S+ Tier</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Рейтинг убийств</label>
+                    <select name="kills_rating" class="tier-select">
+                        <option value="F">F Tier</option>
+                        <option value="D">D Tier</option>
+                        <option value="C">C Tier</option>
+                        <option value="B">B Tier</option>
+                        <option value="A">A Tier</option>
+                        <option value="S">S Tier</option>
+                        <option value="S+">S+ Tier</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Рейтинг целей</label>
+                    <select name="objective_rating" class="tier-select">
+                        <option value="F">F Tier</option>
+                        <option value="D">D Tier</option>
+                        <option value="C">C Tier</option>
+                        <option value="B">B Tier</option>
+                        <option value="A">A Tier</option>
+                        <option value="S">S Tier</option>
+                        <option value="S+">S+ Tier</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Эффективность</label>
+                    <select name="efficiency_rating" class="tier-select">
+                        <option value="F">F Tier</option>
+                        <option value="D">D Tier</option>
+                        <option value="C">C Tier</option>
+                        <option value="B">B Tier</option>
+                        <option value="A">A Tier</option>
+                        <option value="S">S Tier</option>
+                        <option value="S+">S+ Tier</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-3">
+                <label class="form-label">Заметки администратора</label>
+                <textarea name="admin_notes" class="form-control" rows="2" 
+                          style="background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); color: #fff;"
+                          placeholder="Дополнительные заметки..."></textarea>
+            </div>
+            <div class="mt-3">
+                <button type="submit" class="btn btn-danger">
+                    <i class="fas fa-save me-2"></i>Сохранить оценки
+                </button>
+                <button type="button" class="btn btn-outline-secondary ms-2" onclick="calculateAutoRating()">
+                    <i class="fas fa-calculator me-2"></i>Авто-расчет
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+let currentPlayerId = {{ player.id }};
+let currentModeId = null;
+let gameModes = {{ game_modes | tojson }};
+
+// Initialize ASCEND card
+document.addEventListener('DOMContentLoaded', function() {
+    initializeASCENDCard();
+});
+
+function initializeASCENDCard() {
+    const modeButtons = document.querySelectorAll('.mode-btn');
+    
+    modeButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const mode = this.dataset.mode;
+            const modeData = gameModes.find(m => m.name === mode);
+            if (modeData) {
+                selectGameMode(modeData.id, this);
+            }
+        });
+    });
+
+    // Select first mode by default
+    if (modeButtons.length > 0) {
+        modeButtons[0].click();
+    }
+}
+
+function selectGameMode(modeId, buttonElement) {
+    currentModeId = modeId;
+    
+    // Update active button
+    document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+    buttonElement.classList.add('active');
+    
+    // Update admin panel mode id
+    const adminModeId = document.getElementById('adminModeId');
+    if (adminModeId) {
+        adminModeId.value = modeId;
+    }
+    
+    // Load ratings for selected mode
+    loadModeRatings(modeId);
+    
+    // Show admin panel if admin
+    {% if is_admin %}
+    document.getElementById('adminPanel').style.display = 'block';
+    {% endif %}
+}
+
+async function loadModeRatings(modeId) {
+    const ratingsContent = document.getElementById('ratingsContent');
+    ratingsContent.innerHTML = `
+        <div class="ascend-loading">
+            <div class="loading-spinner"></div>
+            <span class="ms-2">Загрузка рейтингов...</span>
+        </div>
+    `;
+
+    try {
+        const response = await fetch(`/api/player/${currentPlayerId}/rating/${modeId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            displayRatings(data.rating, data.mode);
+            updateAdminForm(data.rating);
+        } else {
+            showNoDataMessage(data.mode);
+        }
+    } catch (error) {
+        console.error('Error loading ratings:', error);
+        ratingsContent.innerHTML = `
+            <div class="no-data-message">
+                <i class="fas fa-exclamation-triangle text-warning mb-2"></i><br>
+                Ошибка загрузки данных
+            </div>
+        `;
+    }
+}
+
+function displayRatings(rating, mode) {
+    const objectiveName = getObjectiveName(mode.name);
+    
+    const ratingsHTML = `
+        <div class="rating-grid">
+            <div class="rating-card tier-${rating.kd_rating.toLowerCase().replace('+', '-plus')}" style="--tier-color: ${getTierColor(rating.kd_rating)}">
+                <div class="rating-label">K/D Ratio</div>
+                <div class="rating-tier">${rating.kd_rating}</div>
+                <div class="rating-stats">${rating.mode_kd_ratio} K/D</div>
+            </div>
+            
+            <div class="rating-card tier-${rating.kills_rating.toLowerCase().replace('+', '-plus')}" style="--tier-color: ${getTierColor(rating.kills_rating)}">
+                <div class="rating-label">Убийства</div>
+                <div class="rating-tier">${rating.kills_rating}</div>
+                <div class="rating-stats">${rating.mode_kills.toLocaleString()} убийств</div>
+            </div>
+            
+            <div class="rating-card tier-${rating.objective_rating.toLowerCase().replace('+', '-plus')}" style="--tier-color: ${getTierColor(rating.objective_rating)}">
+                <div class="rating-label">${objectiveName}</div>
+                <div class="rating-tier">${rating.objective_rating}</div>
+                <div class="rating-stats">${rating.mode_objectives.toLocaleString()}</div>
+            </div>
+            
+            <div class="rating-card tier-${rating.efficiency_rating.toLowerCase().replace('+', '-plus')}" style="--tier-color: ${getTierColor(rating.efficiency_rating)}">
+                <div class="rating-label">Эффективность</div>
+                <div class="rating-tier">${rating.efficiency_rating}</div>
+                <div class="rating-stats">${rating.mode_win_rate}% побед</div>
+            </div>
+            
+            <div class="rating-card overall-rating tier-${rating.overall_rating.toLowerCase().replace('+', '-plus')}" style="--tier-color: ${getTierColor(rating.overall_rating)}">
+                <div class="rating-label">Общий рейтинг</div>
+                <div class="rating-tier">${rating.overall_rating}</div>
+                <div class="rating-stats">
+                    ${rating.mode_games.toLocaleString()} игр • ${rating.mode_experience.toLocaleString()} XP
+                </div>
+                ${rating.last_evaluated_by ? `
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <i class="fas fa-user-shield"></i>
+                            Оценено: ${rating.last_evaluated_by}
+                        </small>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('ratingsContent').innerHTML = ratingsHTML;
+}
+
+function showNoDataMessage(mode) {
+    const objectiveName = getObjectiveName(mode.name);
+    
+    document.getElementById('ratingsContent').innerHTML = `
+        <div class="no-data-message">
+            <i class="fas fa-chart-line text-muted mb-3" style="font-size: 3rem;"></i>
+            <h5>Нет данных для ${mode.display_name}</h5>
+            <p>Статистика для этого режима пока не доступна.</p>
+            {% if is_admin %}
+            <button class="btn btn-outline-warning mt-2" onclick="createModeData()">
+                <i class="fas fa-plus me-2"></i>Создать данные режима
+            </button>
+            {% endif %}
+        </div>
+    `;
+}
+
+function updateAdminForm(rating) {
+    {% if is_admin %}
+    const form = document.getElementById('adminRatingForm');
+    if (form && rating) {
+        form.kd_rating.value = rating.kd_rating;
+        form.kills_rating.value = rating.kills_rating;
+        form.objective_rating.value = rating.objective_rating;
+        form.efficiency_rating.value = rating.efficiency_rating;
+        form.admin_notes.value = rating.admin_notes || '';
+    }
+    {% endif %}
+}
+
+function getTierColor(tier) {
+    const colors = {
+        'F': '#8b0000',
+        'D': '#dc143c',
+        'C': '#ff8c00',
+        'B': '#ffd700',
+        'A': '#32cd32',
+        'S': '#00bfff',
+        'S+': '#ff1493'
+    };
+    return colors[tier] || '#6c757d';
+}
+
+function getObjectiveName(modeName) {
+    const objectiveNames = {
+        'bedwars': 'Кровати',
+        'skywars': 'Фраги',
+        'fireballfight': 'Попадания',
+        'tntrun': 'Выживания',
+        'duels': 'Дуэли'
+    };
+    return objectiveNames[modeName] || 'Цели';
+}
+
+{% if is_admin %}
+function calculateAutoRating() {
+    if (!currentModeId) return;
+    
+    fetch(`/api/player/${currentPlayerId}/rating/${currentModeId}/auto-calculate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadModeRatings(currentModeId);
+            alert('Рейтинги автоматически пересчитаны!');
+        } else {
+            alert('Ошибка при пересчете рейтингов: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка при пересчете рейтингов');
+    });
+}
+
+function createModeData() {
+    if (!currentModeId) return;
+    
+    fetch(`/api/player/${currentPlayerId}/rating/${currentModeId}/create`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadModeRatings(currentModeId);
+        } else {
+            alert('Ошибка при создании данных: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Ошибка при создании данных');
+    });
+}
+{% endif %}
+</script>
